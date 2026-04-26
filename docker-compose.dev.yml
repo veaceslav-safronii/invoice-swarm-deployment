@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: invoices_db
+      POSTGRES_USER: invoice_user
+      POSTGRES_PASSWORD: invoice_pass
+    ports:
+      - "5433:5432"
+
+  adminer:
+    image: adminer
+    ports:
+      - "8081:8080"
+
+  auth:
+    build: ../invoice-auth-service
+    ports:
+      - "3001:3001"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      JWT_SECRET: test-secret
+    depends_on:
+      - postgres
+
+  customers:
+    build: ../invoice-customers-service
+    ports:
+      - "3002:3002"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      AUTH_SERVICE_URL: http://auth:3001
+    depends_on:
+      - postgres
+      - auth
+
+  products:
+    build: ../invoice-products-service
+    ports:
+      - "3003:3003"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      AUTH_SERVICE_URL: http://auth:3001
+    depends_on:
+      - postgres
+      - auth
+
+  invoices:
+    build: ../invoice-invoices-service
+    ports:
+      - "3004:3004"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      AUTH_SERVICE_URL: http://auth:3001
+      CUSTOMERS_SERVICE_URL: http://customers:3002
+      PRODUCTS_SERVICE_URL: http://products:3003
+    depends_on:
+      - postgres
+      - auth
+      - customers
+      - products
