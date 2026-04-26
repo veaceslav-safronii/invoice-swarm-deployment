@@ -1,0 +1,35 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: auth-service
+    url: http://auth:3001
+    routes:
+      - name: auth-route
+        paths:
+          - /api/auth
+        strip_path: true
+
+  - name: customers-service
+    url: http://customers:3002
+    routes:
+      - name: customers-route
+        paths:
+          - /api/customers
+        strip_path: true
+
+  - name: products-service
+    url: http://products:3003
+    routes:
+      - name: products-route
+        paths:
+          - /api/products
+        strip_path: true
+
+  - name: invoices-service
+    url: http://invoices:3004
+    routes:
+      - name: invoices-route
+        paths:
+          - /api/invoices
+        strip_path: true
