@@ -1,0 +1,270 @@
+version: '3.8'
+
+services:
+
+  # ─── DATABASE ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: invoices_db
+      POSTGRES_USER: invoice_user
+      POSTGRES_PASSWORD: invoice_pass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - db-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+  adminer:
+    image: adminer:4.8.1
+    networks:
+      - db-net
+      - public-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+    ports:
+      - "8080:8080"
+
+  # ─── MICROSERVICES ──────────────────────────────────────────────────────────
+  auth:
+    image: cearc/invoice-auth-service:latest
+    environment:
+      PORT: 3001
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      JWT_SECRET: super-secret-jwt-key-change-in-prod
+    networks:
+      - internal-services
+      - db-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  customers:
+    image: cearc/invoice-customers-service:latest
+    environment:
+      PORT: 3002
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      AUTH_SERVICE_URL: http://auth:3001
+    networks:
+      - internal-services
+      - db-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  products:
+    image: cearc/invoice-products-service:latest
+    environment:
+      PORT: 3003
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      AUTH_SERVICE_URL: http://auth:3001
+    networks:
+      - internal-services
+      - db-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  invoices:
+    image: cearc/invoice-invoices-service:latest
+    environment:
+      PORT: 3004
+      DB_HOST: postgres
+      DB_NAME: invoices_db
+      DB_USER: invoice_user
+      DB_PASSWORD: invoice_pass
+      AUTH_SERVICE_URL: http://auth:3001
+      CUSTOMERS_SERVICE_URL: http://customers:3002
+      PRODUCTS_SERVICE_URL: http://products:3003
+    networks:
+      - internal-services
+      - db-net
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  # ─── INFRASTRUCTURE ─────────────────────────────────────────────────────────
+  kong:
+    image: kong:3.4-alpine
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+    volumes:
+      - ./kong:/kong/declarative
+    ports:
+      - "80:8000"
+      - "8001:8001"
+    networks:
+      - public-net
+      - internal-services
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+  portainer:
+    image: portainer/portainer-ce:2.20.3
+    command: -H tcp://tasks.portainer-agent:9001 --tlsskipverify
+    ports:
+      - "9000:9000"
+    volumes:
+      - portainer_data:/data
+    networks:
+      - public-net
+      - portainer-agent-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+
+  portainer-agent:
+    image: portainer/agent:2.20.3
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    networks:
+      - portainer-agent-net
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.platform.os == linux
+
+  # ─── LOGGING (ELK) ──────────────────────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    networks:
+      - logging-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      resources:
+        limits:
+          memory: 1G
+
+  kibana:
+    image: kibana:8.12.0
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - logging-net
+      - public-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+    depends_on:
+      - elasticsearch
+
+  logstash:
+    image: logstash:8.12.0
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline
+    networks:
+      - logging-net
+      - internal-services
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      resources:
+        limits:
+          memory: 512M
+
+# ─── NETWORKS ────────────────────────────────────────────────────────────────
+networks:
+  public-net:
+    driver: overlay
+    attachable: true
+
+  internal-services:
+    driver: overlay
+    attachable: true
+    internal: true
+
+  db-net:
+    driver: overlay
+    attachable: true
+    internal: true
+
+  logging-net:
+    driver: overlay
+    attachable: true
+    internal: true
+
+  portainer-agent-net:
+    driver: overlay
+    attachable: true
+
+# ─── VOLUMES ─────────────────────────────────────────────────────────────────
+volumes:
+  pgdata:
+  portainer_data:
+  esdata:
