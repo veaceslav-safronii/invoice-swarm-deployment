@@ -3,7 +3,7 @@ _transform: true
 
 services:
   - name: auth-service
-    url: http://auth:3001
+    url: http://auth:3001/auth
     routes:
       - name: auth-route
         paths:
@@ -11,7 +11,7 @@ services:
         strip_path: true
 
   - name: customers-service
-    url: http://customers:3002
+    url: http://customers:3002/customers
     routes:
       - name: customers-route
         paths:
@@ -19,7 +19,7 @@ services:
         strip_path: true
 
   - name: products-service
-    url: http://products:3003
+    url: http://products:3003/products
     routes:
       - name: products-route
         paths:
@@ -27,7 +27,7 @@ services:
         strip_path: true
 
   - name: invoices-service
-    url: http://invoices:3004
+    url: http://invoices:3004/invoices
     routes:
       - name: invoices-route
         paths:
